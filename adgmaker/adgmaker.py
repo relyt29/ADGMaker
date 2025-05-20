@@ -2,42 +2,17 @@
 
 import argparse
 import fnmatch
+import sys
 import glob
 import gzip
-import pkg_resources
 import platform
-import requests
 import shutil
 import os
-import zipfile
 from jinja2 import Environment, FileSystemLoader
 
 ####################################################################
 # Data
 ####################################################################
-
-all_zip_urls = [
-    "http://www.philharmonia.co.uk/assets/audio/samples/banjo/banjo.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/bass%20clarinet/bass%20clarinet.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/bassoon/bassoon.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/cello/cello.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/clarinet/clarinet.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/contrabassoon/contrabassoon.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/cor%20anglais/cor%20anglais.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/double%20bass/double%20bass.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/flute/flute.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/french%20horn/french%20horn.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/guitar/guitar.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/mandolin/mandolin.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/oboe/oboe.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/saxophone/saxophone.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/trombone/trombone.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/trumpet/trumpet.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/tuba/tuba.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/viola/viola.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/violin/violin.zip",
-    "http://www.philharmonia.co.uk/assets/audio/samples/percussion/percussion.zip"
-]
 
 home_dir = os.path.expanduser("~")
 samples_dir = os.path.join(home_dir, 'Music', 'Ableton', 'User Library', 'Samples', 'Imported')
@@ -73,20 +48,12 @@ class ADGMaker(object):
         parser.add_argument('samples_path', metavar='U', type=str, nargs='*', help=help_message)
         parser.add_argument('-d', '--debug', action='store_true', help='Debug (no delete XML)', default=False)
         parser.add_argument('-i', '--install', action='store_true', help='Install into Ableton directory', default=False)
-        parser.add_argument('-a', '--all', action='store_true', help='Fetch all available instruments from philharmonia website', default=False)
-        parser.add_argument('-v', '--version', action='store_true', default=False,
-            help='Display the current version of ADGMaker')
 
         args = parser.parse_args(argv)
         self.vargs = vars(args)
 
-        if self.vargs['version']:
-            version = pkg_resources.require("adgmaker")[0].version
-            print(version)
-            return
-
         # Samples are an important requirement.
-        if not self.vargs['samples_path'] and not self.vargs['all']:
+        if not self.vargs['samples_path']:
             print(help_message)
             return
 
@@ -100,32 +67,6 @@ class ADGMaker(object):
 
         if self.vargs['samples_path']:
             self.create_adg_from_samples_path(self.vargs['samples_path'][0])
-
-        if self.vargs['all']:
-            for zip_url in all_zip_urls:
-
-                # Download the zip
-                zip_file_name = zip_url.rsplit('/',1)[1]
-                print("\nDownloading " + zip_file_name + "..\n")
-
-                with open(zip_file_name, 'wb') as handle:
-                    response = requests.get(zip_url, stream=True)
-                    for block in response.iter_content(1024):
-                        handle.write(block)
-
-                # Unzip to a directory
-                dir_name = zip_file_name.split('.zip')[0]
-                zip_ref = zipfile.ZipFile(zip_file_name, 'r')
-                zip_ref.extractall(dir_name)
-                zip_ref.close()
-
-                # Delete zip
-                os.remove(zip_file_name) 
-
-                # Create ADG from samples
-                self.create_adg_from_samples_path(dir_name)
-
-                self.adgs = {}
 
         print("Done! Remember to update your User Library in Live to see these new instruments!")
 
@@ -186,7 +127,7 @@ class ADGMaker(object):
         else:
             adg_name = instrument_name + '_' + length + "_" + velocity + '_' + hit_type
 
-        if self.adgs.has_key(adg_name):
+        if adg_name in self.adgs:
             adg_contents = self.adgs[adg_name]
         else:
             adg_contents = []
@@ -229,7 +170,7 @@ class ADGMaker(object):
         note_value = self.string_to_midi_note(note)
         ableton_path = "userfolder:" + file_path.rsplit(os.sep, 1)[0] + os.sep + '#' + mp3_name
 
-        data = file_path.encode('utf-16').encode('hex').upper()
+        data = file_path.encode('utf-16').hex().upper()
 
         xml = self.jenv.get_template('instrument_xml.tpl').render(
                 name=name,
@@ -253,7 +194,7 @@ class ADGMaker(object):
         f.write(xml) 
         f.close()
 
-        with open(xml_name) as f_in, gzip.open(adg_file, 'wb') as f_out:
+        with open(xml_name, 'rb') as f_in, gzip.open(adg_file, 'wb') as f_out:
             f_out.writelines(f_in)
 
         if not self.vargs.get('d', False):
@@ -422,13 +363,13 @@ def handle(): # pragma: no cover
         print("ADGMaker currently only works for OSX. Sorry.")
         return
 
-    try:
-        adg_maker = ADGMaker()
-        adg_maker.handle()
-    except (KeyboardInterrupt, SystemExit): # pragma: no cover
-        return
-    except Exception as e:
-        print(e)
+    #try:
+    adg_maker = ADGMaker()
+    adg_maker.handle()
+    #@except (KeyboardInterrupt, SystemExit): # pragma: no cover
+    #@    return
+    #@except Exception as e:
+    #@    print(e)
 
 if __name__ == '__main__': # pragma: no cover
     handle()
